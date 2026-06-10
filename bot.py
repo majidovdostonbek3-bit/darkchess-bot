@@ -1,55 +1,169 @@
 import logging
 import chess
+import io
 import os
+from PIL import Image, ImageDraw, ImageFont
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes
+    ContextTypes
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = os.environ.get("BOT_TOKEN", "8700268528:AAHNLSBSnKsihPUcL7hhdPbB9U4-RzkWME8")
-
-PIECES = {
-    'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
-    'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
-}
+TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 games = {}
 waiting_games = {}
 
-def board_to_text(board):
-    lines = []
+# ---- Doska rasmi chizish ----
+def draw_board(board: chess.Board, selected=None, last_move=None) -> bytes:
+    SIZE = 400
+    SQ = SIZE // 8
+    img = Image.new("RGB", (SIZE + 40, SIZE + 40), (40, 40, 40))
+    draw = ImageDraw.Draw(img)
+
+    LIGHT = (240, 217, 181)
+    DARK = (181, 136, 99)
+    SELECTED = (246, 246, 105)
+    LAST_MOVE = (205, 210, 106)
+    PIECES_UNICODE = {
+        'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
+        'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
+    }
+
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", SQ - 8)
+        label_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+    except:
+        font = ImageFont.load_default()
+        label_font = ImageFont.load_default()
+
+    last_squares = []
+    if last_move:
+        last_squares = [last_move.from_square, last_move.to_square]
+
     for rank in range(7, -1, -1):
-        row = []
         for file in range(8):
             sq = chess.square(file, rank)
+            x = file * SQ + 20
+            y = (7 - rank) * SQ + 20
+
+            if selected == sq:
+                color = SELECTED
+            elif sq in last_squares:
+                color = LAST_MOVE
+            elif (rank + file) % 2 == 0:
+                color = DARK
+            else:
+                color = LIGHT
+
+            draw.rectangle([x, y, x + SQ, y + SQ], fill=color)
+
             piece = board.piece_at(sq)
             if piece:
-                row.append(PIECES[piece.symbol()])
-            else:
-                row.append('⬛' if (rank + file) % 2 == 0 else '⬜')
-        lines.append(f"{rank + 1} {''.join(row)}")
-    lines.append("  ａｂｃｄｅｆｇｈ")
-    return '\n'.join(lines)
+                symbol = PIECES_UNICODE[piece.symbol()]
+                piece_color = (255, 255, 255) if piece.color == chess.WHITE else (0, 0, 0)
+                draw.text((x + 4, y + 2), symbol, fill=piece_color, font=font)
+
+    # Harflar va raqamlar
+    for i in range(8):
+        draw.text((i * SQ + 20 + SQ//2 - 5, SIZE + 22), "abcdefgh"[i], fill=(200, 200, 200), font=label_font)
+        draw.text((4, (7 - i) * SQ + 20 + SQ//2 - 7), str(i + 1), fill=(200, 200, 200), font=label_font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf.getvalue()
+
+
+# ---- Yurish tugmalari ----
+def move_keyboard(board: chess.Board, selected=None):
+    if selected is None:
+        # Harakatlanishi mumkin bo'lgan donalar
+        pieces = set()
+        for move in board.legal_moves:
+            pieces.add(move.from_square)
+        rows = []
+        row = []
+        files = "abcdefgh"
+        for sq in sorted(pieces):
+            piece = board.piece_at(sq)
+            if piece:
+                label = f"{chess.PIECE_SYMBOLS[piece.piece_type].upper()}{files[chess.square_file(sq)]}{chess.square_rank(sq)+1}"
+                row.append(InlineKeyboardButton(label, callback_data=f"sel_{sq}"))
+                if len(row) == 4:
+                    rows.append(row)
+                    row = []
+        if row:
+            rows.append(row)
+        rows.append([InlineKeyboardButton("🏳️ Taslim", callback_data="resign")])
+        return InlineKeyboardMarkup(rows)
+    else:
+        # Tanlangan donaning yurishlari
+        moves = [m for m in board.legal_moves if m.from_square == selected]
+        rows = []
+        row = []
+        files = "abcdefgh"
+        for move in moves:
+            to_sq = move.to_square
+            label = f"{files[chess.square_file(to_sq)]}{chess.square_rank(to_sq)+1}"
+            row.append(InlineKeyboardButton(label, callback_data=f"move_{move.uci()}"))
+            if len(row) == 4:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        rows.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="back")])
+        return InlineKeyboardMarkup(rows)
+
+
+async def send_board(update_or_query, game, text="", edit=False):
+    board = game['board']
+    last_move = board.peek() if board.move_stack else None
+    img_bytes = draw_board(board, last_move=last_move)
+    keyboard = move_keyboard(board)
+
+    turn = "⬜ Oq" if board.turn == chess.WHITE else "⬛ Qora"
+    check = " ⚠️ Shoh!" if board.is_check() else ""
+    caption = f"{turn} navbati{check}"
+    if text:
+        caption = text + "\n" + caption
+
+    if edit and hasattr(update_or_query, 'message'):
+        await update_or_query.message.reply_photo(
+            photo=img_bytes, caption=caption, reply_markup=keyboard
+        )
+    elif hasattr(update_or_query, 'message'):
+        await update_or_query.message.reply_photo(
+            photo=img_bytes, caption=caption, reply_markup=keyboard
+        )
+    else:
+        await update_or_query.edit_message_caption(
+            caption=caption, reply_markup=keyboard
+        )
+
+
+# ---- /start ----
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🤖 AI bilan o'ynash", callback_data="mode_ai")],
         [InlineKeyboardButton("👥 Do'st bilan o'ynash", callback_data="mode_pvp")],
     ]
     await update.message.reply_text(
-        "♟ *Telegram Shaxmat Botiga Xush Kelibsiz!*\n\nQanday o'ynashni tanlang:",
+        "♟ *Darkchess Botiga Xush Kelibsiz!*\n\nO'yin rejimini tanlang:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 async def mode_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
     user_id = query.from_user.id
+
     if query.data == "mode_ai":
         keyboard = [
             [InlineKeyboardButton("🟢 Oson", callback_data="ai_1"),
@@ -57,143 +171,63 @@ async def mode_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔴 Qiyin", callback_data="ai_5"),
              InlineKeyboardButton("⚫ Master", callback_data="ai_8")],
         ]
-        await query.edit_message_text("🤖 *AI Darajasini Tanlang:*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(
+            "🤖 *AI darajasini tanlang:*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     elif query.data == "mode_pvp":
-        if chat_id in waiting_games:
+        if chat_id in waiting_games and waiting_games[chat_id] != user_id:
             white_id = waiting_games.pop(chat_id)
-            black_id = user_id
-            if white_id == black_id:
-                await query.edit_message_text("❌ O'zingiz bilan o'ynay olmaysiz!")
-                return
             board = chess.Board()
-            games[chat_id] = {'board': board, 'mode': 'pvp', 'players': {chess.WHITE: white_id, chess.BLACK: black_id}}
-            await query.edit_message_text(f"✅ *O'yin boshlandi!*\n\n{board_to_text(board)}\n\n⬜ Oq yurish qiladi!\nFormat: `e2e4`", parse_mode="Markdown")
+            games[chat_id] = {
+                'board': board, 'mode': 'pvp',
+                'players': {chess.WHITE: white_id, chess.BLACK: user_id},
+            }
+            await query.edit_message_text("✅ O'yin boshlandi!")
+            await send_board(query, games[chat_id])
         else:
             waiting_games[chat_id] = user_id
-            keyboard = [[InlineKeyboardButton("🎮 O'yinga qo'shilish", callback_data="mode_pvp")]]
-            await query.edit_message_text("⏳ *Raqib kutilmoqda...*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-async def ai_level_select(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            keyboard = [[InlineKeyboardButton("🎮 Qo'shilish", callback_data="mode_pvp")]]
+            await query.edit_message_text(
+                "⏳ *Raqib kutilmoqda...*\nDo'stingiz shu tugmani bossin!",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+
+async def ai_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
     user_id = query.from_user.id
     level = int(query.data.split("_")[1])
     board = chess.Board()
-    games[chat_id] = {'board': board, 'mode': 'ai', 'players': {chess.WHITE: user_id}, 'ai_level': level}
-    await query.edit_message_text(f"✅ *O'yin boshlandi! (AI darajasi: {level})*\n\n{board_to_text(board)}\n\n⬜ Siz oq rangdasiz!\nFormat: `e2e4`", parse_mode="Markdown")
+    games[chat_id] = {
+        'board': board, 'mode': 'ai',
+        'players': {chess.WHITE: user_id},
+        'ai_level': level,
+    }
+    await query.edit_message_text(f"✅ AI bilan o'yin (daraja: {level})")
+    await send_board(query, games[chat_id])
 
-PIECE_VALUES = {chess.PAWN: 100, chess.KNIGHT: 320, chess.BISHOP: 330, chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 20000}
 
-def evaluate(board):
-    if board.is_checkmate():
-        return -99999 if board.turn == chess.BLACK else 99999
-    if board.is_stalemate() or board.is_insufficient_material():
-        return 0
-    score = 0
-    for pt, val in PIECE_VALUES.items():
-        score += len(board.pieces(pt, chess.WHITE)) * val
-        score -= len(board.pieces(pt, chess.BLACK)) * val
-    return score
+async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    user_id = query.from_user.id
 
-def minimax(board, depth, alpha, beta, maximizing):
-    if depth == 0 or board.is_game_over():
-        return evaluate(board), None
-    best_move = None
-    if maximizing:
-        max_eval = float('-inf')
-        for move in board.legal_moves:
-            board.push(move)
-            ev, _ = minimax(board, depth-1, alpha, beta, False)
-            board.pop()
-            if ev > max_eval:
-                max_eval, best_move = ev, move
-            alpha = max(alpha, ev)
-            if beta <= alpha:
-                break
-        return max_eval, best_move
-    else:
-        min_eval = float('inf')
-        for move in board.legal_moves:
-            board.push(move)
-            ev, _ = minimax(board, depth-1, alpha, beta, True)
-            board.pop()
-            if ev < min_eval:
-                min_eval, best_move = ev, move
-            beta = min(beta, ev)
-            if beta <= alpha:
-                break
-        return min_eval, best_move
-
-def get_ai_move(board, level):
-    depth = min(level // 2 + 1, 4)
-    _, move = minimax(board, depth, float('-inf'), float('inf'), True)
-    return move if move else list(board.legal_moves)[0]
-
-async def handle_move(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
-    text = update.message.text.strip().lower()
     if chat_id not in games:
-        await update.message.reply_text("O'yin yo'q. /start bilan boshlang.")
+        await query.answer("O'yin yo'q! /start bosing", show_alert=True)
         return
+
     game = games[chat_id]
     board = game['board']
+
     if game['mode'] == 'pvp':
         if game['players'].get(board.turn) != user_id:
-            await update.message.reply_text("⏳ Sizning navbatingiz emas!")
+            await query.answer("Sizning navbatingiz emas!", show_alert=True)
             return
-    elif board.turn == chess.BLACK:
-        return
-    try:
-        move = chess.Move.from_uci(text)
-        if move not in board.legal_moves:
-            move = board.parse_san(text)
-    except:
-        await update.message.reply_text("❌ Noto'g'ri yurish! Masalan: `e2e4`", parse_mode="Markdown")
-        return
-    board.push(move)
-    if board.is_game_over():
-        r = board.result()
-        w = "⬜ Oq g'alaba!" if r=="1-0" else ("⬛ Qora g'alaba!" if r=="0-1" else "🤝 Durrang!")
-        await update.message.reply_text(f"{board_to_text(board)}\n\n🏁 *O'yin tugadi!*\n{w}", parse_mode="Markdown")
-        del games[chat_id]
-        return
-    extra = ""
-    if game['mode'] == 'ai' and board.turn == chess.BLACK:
-        ai_move = get_ai_move(board, game['ai_level'])
-        board.push(ai_move)
-        extra = f"\n🤖 AI: `{ai_move.uci()}`"
-        if board.is_game_over():
-            r = board.result()
-            w = "🤖 AI g'alaba!" if r=="0-1" else ("🎉 Siz g'alabadingiz!" if r=="1-0" else "🤝 Durrang!")
-            await update.message.reply_text(f"{board_to_text(board)}\n\n🏁 *O'yin tugadi!*\n{w}", parse_mode="Markdown")
-            del games[chat_id]
-            return
-    turn = "⬜ Oq" if board.turn == chess.WHITE else "⬛ Qora"
-    check = " ⚠️ Shoh ostida!" if board.is_check() else ""
-    await update.message.reply_text(f"{board_to_text(board)}\n\n{turn} navbati{check}{extra}", parse_mode="Markdown")
 
-async def stop_game(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    if chat_id in games:
-        del games[chat_id]
-        await update.message.reply_text("🛑 O'yin to'xtatildi.")
-    else:
-        await update.message.reply_text("Faol o'yin yo'q.")
-
-async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("♟ *Shaxmat Bot*\n\n/start — Yangi o'yin\n/stop — To'xtatish\n\nYurish: `e2e4`, `g1f3`", parse_mode="Markdown")
-
-def main():
-    app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stop", stop_game))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CallbackQueryHandler(mode_select, pattern="^mode_"))
-    app.add_handler(CallbackQueryHandler(ai_level_select, pattern="^ai_"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_move))
-    print("Bot ishga tushdi...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+    data = query.data
