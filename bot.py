@@ -1,6 +1,5 @@
 import logging
 import chess
-import io
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -17,3 +16,21 @@ PIECES = {
     'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
     'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
 }
+
+games = {}
+waiting_games = {}
+
+def board_to_text(board):
+    lines = []
+    for rank in range(7, -1, -1):
+        row = []
+        for file in range(8):
+            sq = chess.square(file, rank)
+            piece = board.piece_at(sq)
+            if piece:
+                row.append(PIECES[piece.symbol()])
+            else:
+                row.append('⬛' if (rank + file) % 2 == 0 else '⬜')
+        lines.append(f"{rank + 1} {''.join(row)}")
+    lines.append("  ａｂｃｄｅｆｇｈ")
+    return '\n'.join(lines)
