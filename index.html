@@ -6,35 +6,84 @@
 <title>UzChess</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Arial}
-h1{color:#e0c96e;margin-bottom:20px;font-size:24px}
+body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;min-height:100vh;font-family:Arial;padding:10px}
+h1{color:#e0c96e;margin:10px 0;font-size:22px}
+#menu{display:flex;gap:10px;margin-bottom:15px;flex-wrap:wrap;justify-content:center}
+.btn{background:#e0c96e;color:#1a1a2e;border:none;padding:10px 16px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold}
+.btn:hover{background:#f0d97e}
+.btn.red{background:#e07070}
+.btn.blue{background:#70a0e0}
 #board{border:3px solid #e0c96e;border-radius:4px}
 .row{display:flex}
-.cell{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:32px;cursor:pointer;transition:0.2s}
+.cell{width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:28px;cursor:pointer;transition:0.1s;position:relative}
 .light{background:#f0d9b5}
 .dark{background:#b58863}
 .selected{background:#7fc97f!important}
-.possible{background:#7fc9c9!important}
-#status{color:#fff;margin-top:15px;font-size:16px;text-align:center}
-#turn{color:#e0c96e;margin-top:8px;font-size:14px}
-.btn{background:#e0c96e;color:#1a1a2e;border:none;padding:10px 20px;border-radius:8px;font-size:16px;cursor:pointer;margin-top:15px;font-weight:bold}
+.possible{background:rgba(127,201,127,0.6)!important}
+.possible::after{content:'';width:14px;height:14px;background:rgba(0,0,0,0.3);border-radius:50%;position:absolute}
+.lastmove{background:#cdd16f!important}
+.check{background:#e07070!important}
+#info{color:#fff;margin-top:12px;font-size:15px;text-align:center}
+#turn{color:#e0c96e;margin-top:6px;font-size:13px}
+#mode{color:#aaa;font-size:12px;margin-top:4px}
+#roominfo{color:#7fc97f;font-size:13px;margin-top:6px;display:none}
+#chat{width:100%;max-width:360px;margin-top:10px;display:none}
+#chatbox{background:#0d0d1a;border:1px solid #333;border-radius:8px;padding:8px;height:100px;overflow-y:auto;color:#ccc;font-size:12px;margin-bottom:6px}
+#chatinput{display:flex;gap:6px}
+#chatinput input{flex:1;background:#0d0d1a;border:1px solid #444;border-radius:6px;padding:6px;color:#fff;font-size:13px}
+#difficulty{display:none;margin-bottom:10px}
+#difficulty label{color:#e0c96e;margin-right:8px}
+#difficulty select{background:#0d0d1a;color:#fff;border:1px solid #444;padding:6px;border-radius:6px}
 </style>
 </head>
 <body>
 <h1>♟ UzChess</h1>
+
+<div id="menu">
+  <button class="btn" onclick="startLocal()">👥 Ikki o'yinchi</button>
+  <button class="btn blue" onclick="showAI()">🤖 AI ga qarshi</button>
+  <button class="btn" style="background:#9070e0" onclick="showMulti()">🌐 Multiplayer</button>
+</div>
+
+<div id="difficulty">
+  <label>AI darajasi:</label>
+  <select id="ailevel">
+    <option value="1">🟢 Oson</option>
+    <option value="3" selected>🟡 O'rta</option>
+    <option value="5">🔴 Qiyin</option>
+  </select>
+  <button class="btn" style="margin-left:8px" onclick="startAI()">Boshlash</button>
+</div>
+
 <div id="board"></div>
-<div id="status">O'yin boshlandi!</div>
-<div id="turn">Navbat: ⬜ Oq</div>
-<button class="btn" onclick="resetGame()">🔄 Yangi o'yin</button>
+<div id="info">Rejim tanlang</div>
+<div id="turn"></div>
+<div id="mode"></div>
+<div id="roominfo"></div>
+
+<div id="chat">
+  <div id="chatbox"></div>
+  <div id="chatinput">
+    <input id="msginput" placeholder="Xabar..." onkeydown="if(event.key==='Enter')sendMsg()">
+    <button class="btn" onclick="sendMsg()">▶</button>
+  </div>
+</div>
+
+<div id="menu2" style="margin-top:12px;display:none">
+  <button class="btn red" onclick="resetGame()">🔄 Yangi o'yin</button>
+</div>
+
 <script>
 const PIECES={
   wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',
   bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟'
 };
-let board,selected,turn,possible;
 
-function init(){
-  board=[
+let board,selected,turn,possible,lastMove,gameMode,aiColor,aiDepth,gameOver;
+let ws,roomId,myColor;
+
+function initBoard(){
+  return [
     ['bR','bN','bB','bQ','bK','bB','bN','bR'],
     ['bP','bP','bP','bP','bP','bP','bP','bP'],
     [null,null,null,null,null,null,null,null],
@@ -44,58 +93,235 @@ function init(){
     ['wP','wP','wP','wP','wP','wP','wP','wP'],
     ['wR','wN','wB','wQ','wK','wB','wN','wR']
   ];
-  selected=null;turn='w';possible=[];
+}
+
+function startLocal(){
+  gameMode='local';aiColor=null;gameOver=false;
+  board=initBoard();selected=null;turn='w';possible=[];lastMove=null;
+  document.getElementById('difficulty').style.display='none';
+  document.getElementById('menu2').style.display='block';
+  document.getElementById('mode').textContent='Rejim: Ikki o\'yinchi';
+  document.getElementById('roominfo').style.display='none';
+  document.getElementById('chat').style.display='none';
   render();
+  document.getElementById('info').textContent="O'yin boshlandi!";
+}
+
+function showAI(){
+  document.getElementById('difficulty').style.display='block';
+  document.getElementById('menu2').style.display='none';
+}
+
+function startAI(){
+  aiDepth=parseInt(document.getElementById('ailevel').value);
+  gameMode='ai';aiColor='b';gameOver=false;
+  board=initBoard();selected=null;turn='w';possible=[];lastMove=null;
+  document.getElementById('difficulty').style.display='none';
+  document.getElementById('menu2').style.display='block';
+  document.getElementById('mode').textContent='Rejim: AI ga qarshi';
+  document.getElementById('chat').style.display='none';
+  render();
+  document.getElementById('info').textContent="Siz oq, AI qora!";
+}
+
+function showMulti(){
+  const room=prompt("Xona raqami (bo'sh qoldiring = yangi xona):");
+  if(room===null)return;
+  joinRoom(room||Math.random().toString(36).substr(2,6).toUpperCase());
+}
+
+function joinRoom(room){
+  roomId=room;gameMode='multi';gameOver=false;
+  board=initBoard();selected=null;turn='w';possible=[];lastMove=null;
+  document.getElementById('menu2').style.display='block';
+  document.getElementById('chat').style.display='block';
+  document.getElementById('roominfo').style.display='block';
+  document.getElementById('roominfo').textContent='Xona: '+roomId+' | Raqib kutilmoqda...';
+  document.getElementById('mode').textContent='Rejim: Multiplayer';
+
+  try{
+    ws=new WebSocket('wss://echo.websocket.org');
+    ws.onopen=()=>{
+      myColor='w';
+      ws.send(JSON.stringify({type:'join',room:roomId,color:'w'}));
+      addChat('Tizim','Xonaga qo\'shildingiz: '+roomId);
+      addChat('Tizim',"Do'stingizga xona raqamini yuboring: "+roomId);
+    };
+    ws.onmessage=(e)=>{
+      try{
+        const d=JSON.parse(e.data);
+        if(d.type==='move'&&d.room===roomId){
+          board=d.board;turn=d.turn;lastMove=d.lastMove;
+          render();
+        }else if(d.type==='chat'&&d.room===roomId){
+          addChat(d.name,d.msg);
+        }else if(d.type==='join'&&d.room===roomId&&d.color!==myColor){
+          myColor=myColor||'b';
+          addChat('Tizim','Raqib qo\'shildi!');
+          document.getElementById('roominfo').textContent='Xona: '+roomId+' | Raqib: Ulangan ✅';
+        }
+      }catch(err){}
+    };
+  }catch(e){
+    addChat('Tizim','Multiplayer hozircha ishlamayapti. Lokal rejimdan foydalaning.');
+  }
+  render();
+  document.getElementById('info').textContent="Xona: "+roomId;
+}
+
+function addChat(name,msg){
+  const box=document.getElementById('chatbox');
+  box.innerHTML+=`<div><b style="color:#e0c96e">${name}:</b> ${msg}</div>`;
+  box.scrollTop=box.scrollHeight;
+}
+
+function sendMsg(){
+  const inp=document.getElementById('msginput');
+  if(!inp.value.trim())return;
+  addChat('Men',inp.value);
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'chat',room:roomId,name:'Men',msg:inp.value}));
+  inp.value='';
+}
+
+function getMoves(r,c,b){
+  b=b||board;
+  const p=b[r][c];if(!p)return[];
+  const moves=[];const color=p[0];
+  const add=(nr,nc)=>{
+    if(nr<0||nr>7||nc<0||nc>7)return false;
+    if(b[nr][nc]&&b[nr][nc][0]===color)return false;
+    moves.push([nr,nc]);
+    return!b[nr][nc];
+  };
+  if(p[1]==='P'){
+    const dir=color==='w'?-1:1;
+    if(r+dir>=0&&r+dir<=7&&!b[r+dir][c]){
+      moves.push([r+dir,c]);
+      if((color==='w'&&r===6)||(color==='b'&&r===1))if(!b[r+2*dir][c])moves.push([r+2*dir,c]);
+    }
+    [-1,1].forEach(dc=>{
+      if(c+dc>=0&&c+dc<=7&&r+dir>=0&&r+dir<=7&&b[r+dir][c+dc]&&b[r+dir][c+dc][0]!==color)moves.push([r+dir,c+dc]);
+    });
+  }else if(p[1]==='N'){
+    [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
+  }else if(p[1]==='K'){
+    [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
+  }else{
+    if('QR'.includes(p[1])){[[0,1],[0,-1],[1,0],[-1,0]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}});}
+    if('QB'.includes(p[1])){[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}});}
+  }
+  return moves;
+}
+
+function getAllMoves(color,b){
+  b=b||board;
+  const all=[];
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++)if(b[r][c]&&b[r][c][0]===color){
+    getMoves(r,c,b).forEach(([nr,nc])=>all.push({fr:r,fc:c,tr:nr,tc:nc}));
+  }
+  return all;
+}
+
+const VALS={P:10,N:30,B:30,R:50,Q:90,K:900};
+function evaluate(b){
+  let score=0;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const p=b[r][c];
+    if(p)score+=(p[0]==='w'?-1:1)*VALS[p[1]];
+  }
+  return score;
+}
+
+function copyBoard(b){return b.map(r=>[...r]);}
+
+function minimax(b,depth,maximizing){
+  if(depth===0)return evaluate(b);
+  const color=maximizing?'b':'w';
+  const moves=getAllMoves(color,b);
+  if(moves.length===0)return maximizing?-1000:1000;
+  let best=maximizing?-Infinity:Infinity;
+  for(const m of moves){
+    const nb=copyBoard(b);
+    nb[m.tr][m.tc]=nb[m.fr][m.fc];
+    nb[m.fr][m.fc]=null;
+    if(nb[m.tr][m.tc]==='wP'&&m.tr===0)nb[m.tr][m.tc]='wQ';
+    if(nb[m.tr][m.tc]==='bP'&&m.tr===7)nb[m.tr][m.tc]='bQ';
+    const val=minimax(nb,depth-1,!maximizing);
+    best=maximizing?Math.max(best,val):Math.min(best,val);
+  }
+  return best;
+}
+
+function aiMove(){
+  if(gameOver)return;
+  setTimeout(()=>{
+    const moves=getAllMoves('b');
+    if(moves.length===0){gameOver=true;document.getElementById('info').textContent='Siz yutdingiz! 🏆';return;}
+    let best=-Infinity,bestMove=null;
+    for(const m of moves){
+      const nb=copyBoard(board);
+      nb[m.tr][m.tc]=nb[m.fr][m.fc];
+      nb[m.fr][m.fc]=null;
+      const val=minimax(nb,aiDepth-1,false);
+      if(val>best){best=val;bestMove=m;}
+    }
+    if(bestMove){
+      board[bestMove.tr][bestMove.tc]=board[bestMove.fr][bestMove.fc];
+      board[bestMove.fr][bestMove.fc]=null;
+      if(board[bestMove.tr][bestMove.tc]==='bP'&&bestMove.tr===7)board[bestMove.tr][bestMove.tc]='bQ';
+      lastMove=[bestMove.fr,bestMove.fc,bestMove.tr,bestMove.tc];
+      turn='w';
+      render();
+      checkEnd();
+    }
+  },300);
+}
+
+function checkEnd(){
+  const wMoves=getAllMoves('w');
+  const bMoves=getAllMoves('b');
+  if(turn==='w'&&wMoves.length===0){
+    gameOver=true;
+    document.getElementById('info').textContent=gameMode==='ai'?'AI yutdi! 🤖':'Qora yutdi! ⬛';
+  }else if(turn==='b'&&bMoves.length===0){
+    gameOver=true;
+    document.getElementById('info').textContent=gameMode==='ai'?'Siz yutdingiz! 🏆':'Oq yutdi! ⬜';
+  }
+}
+
+function findKing(color,b){
+  b=b||board;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++)if(b[r][c]===color+'K')return[r,c];
+  return null;
 }
 
 function render(){
   const b=document.getElementById('board');
   b.innerHTML='';
+  const king=findKing(turn);
   for(let r=0;r<8;r++){
     const row=document.createElement('div');
     row.className='row';
     for(let c=0;c<8;c++){
       const cell=document.createElement('div');
-      cell.className='cell '+((r+c)%2===0?'light':'dark');
-      if(selected&&selected[0]===r&&selected[1]===c)cell.className+=' selected';
-      if(possible.some(p=>p[0]===r&&p[1]===c))cell.className+=' possible';
+      let cls='cell '+((r+c)%2===0?'light':'dark');
+      if(selected&&selected[0]===r&&selected[1]===c)cls+=' selected';
+      if(possible.some(p=>p[0]===r&&p[1]===c))cls+=' possible';
+      if(lastMove&&((lastMove[0]===r&&lastMove[1]===c)||(lastMove[2]===r&&lastMove[3]===c)))cls+=' lastmove';
+      if(king&&king[0]===r&&king[1]===c)cls+=' check';
+      cell.className=cls;
       if(board[r][c])cell.textContent=PIECES[board[r][c]];
       cell.onclick=()=>click(r,c);
       row.appendChild(cell);
     }
     b.appendChild(row);
   }
-  document.getElementById('turn').textContent='Navbat: '+(turn==='w'?'⬜ Oq':'⬛ Qora');
-}
-
-function getMoves(r,c){
-  const p=board[r][c];if(!p)return[];
-  const moves=[];const color=p[0];
-  const add=(nr,nc)=>{
-    if(nr<0||nr>7||nc<0||nc>7)return false;
-    if(board[nr][nc]&&board[nr][nc][0]===color)return false;
-    moves.push([nr,nc]);
-    return!board[nr][nc];
-  };
-  if(p[1]==='P'){
-    const dir=color==='w'?-1:1;
-    if(!board[r+dir]?.[c]){
-      moves.push([r+dir,c]);
-      if((color==='w'&&r===6)||(color==='b'&&r===1))if(!board[r+2*dir]?.[c])moves.push([r+2*dir,c]);
-    }
-    [-1,1].forEach(dc=>{if(board[r+dir]?.[c+dc]&&board[r+dir][c+dc][0]!==color)moves.push([r+dir,c+dc])});
-  }else if(p[1]==='N'){
-    [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
-  }else if(p[1]==='K'){
-    [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
-  }else{
-    if('QR'.includes(p[1])){[[0,1],[0,-1],[1,0],[-1,0]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}})}
-    if('QB'.includes(p[1])){[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}})}
-  }
-  return moves;
+  if(turn)document.getElementById('turn').textContent='Navbat: '+(turn==='w'?'⬜ Oq':'⬛ Qora');
 }
 
 function click(r,c){
+  if(gameOver)return;
+  if(gameMode==='ai'&&turn==='b')return;
   if(selected){
     const move=possible.find(p=>p[0]===r&&p[1]===c);
     if(move){
@@ -103,20 +329,28 @@ function click(r,c){
       board[selected[0]][selected[1]]=null;
       if(board[r][c]==='wP'&&r===0)board[r][c]='wQ';
       if(board[r][c]==='bP'&&r===7)board[r][c]='bQ';
+      lastMove=[selected[0],selected[1],r,c];
       turn=turn==='w'?'b':'w';
       selected=null;possible=[];
-      document.getElementById('status').textContent='Yurish qilindi!';
+      render();
+      checkEnd();
+      if(!gameOver&&gameMode==='ai'&&turn==='b')aiMove();
+      if(gameMode==='multi'&&ws)ws.send(JSON.stringify({type:'move',room:roomId,board:board,turn:turn,lastMove:lastMove}));
     }else if(board[r][c]&&board[r][c][0]===turn){
-      selected=[r,c];possible=getMoves(r,c);
-    }else{selected=null;possible=[];}
+      selected=[r,c];possible=getMoves(r,c);render();
+    }else{selected=null;possible=[];render();}
   }else{
-    if(board[r][c]&&board[r][c][0]===turn){selected=[r,c];possible=getMoves(r,c);}
+    if(board[r][c]&&board[r][c][0]===turn){selected=[r,c];possible=getMoves(r,c);render();}
   }
-  render();
 }
 
-function resetGame(){init();document.getElementById('status').textContent="O'yin boshlandi!";}
-init();
+function resetGame(){
+  if(gameMode==='local')startLocal();
+  else if(gameMode==='ai')startAI();
+  else{board=initBoard();selected=null;turn='w';possible=[];lastMove=null;gameOver=false;render();}
+}
+
+render();
 </script>
 </body>
-</html>
+  </html>
