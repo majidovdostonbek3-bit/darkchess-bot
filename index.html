@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UzChess</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1a1a2e;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:Arial}
+h1{color:#e0c96e;margin-bottom:20px;font-size:24px}
+#board{border:3px solid #e0c96e;border-radius:4px}
+.row{display:flex}
+.cell{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:32px;cursor:pointer;transition:0.2s}
+.light{background:#f0d9b5}
+.dark{background:#b58863}
+.selected{background:#7fc97f!important}
+.possible{background:#7fc9c9!important}
+#status{color:#fff;margin-top:15px;font-size:16px;text-align:center}
+#turn{color:#e0c96e;margin-top:8px;font-size:14px}
+.btn{background:#e0c96e;color:#1a1a2e;border:none;padding:10px 20px;border-radius:8px;font-size:16px;cursor:pointer;margin-top:15px;font-weight:bold}
+</style>
+</head>
+<body>
+<h1>♟ UzChess</h1>
+<div id="board"></div>
+<div id="status">O'yin boshlandi!</div>
+<div id="turn">Navbat: ⬜ Oq</div>
+<button class="btn" onclick="resetGame()">🔄 Yangi o'yin</button>
+<script>
+const PIECES={
+  wK:'♔',wQ:'♕',wR:'♖',wB:'♗',wN:'♘',wP:'♙',
+  bK:'♚',bQ:'♛',bR:'♜',bB:'♝',bN:'♞',bP:'♟'
+};
+let board,selected,turn,possible;
+
+function init(){
+  board=[
+    ['bR','bN','bB','bQ','bK','bB','bN','bR'],
+    ['bP','bP','bP','bP','bP','bP','bP','bP'],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    ['wP','wP','wP','wP','wP','wP','wP','wP'],
+    ['wR','wN','wB','wQ','wK','wB','wN','wR']
+  ];
+  selected=null;turn='w';possible=[];
+  render();
+}
+
+function render(){
+  const b=document.getElementById('board');
+  b.innerHTML='';
+  for(let r=0;r<8;r++){
+    const row=document.createElement('div');
+    row.className='row';
+    for(let c=0;c<8;c++){
+      const cell=document.createElement('div');
+      cell.className='cell '+((r+c)%2===0?'light':'dark');
+      if(selected&&selected[0]===r&&selected[1]===c)cell.className+=' selected';
+      if(possible.some(p=>p[0]===r&&p[1]===c))cell.className+=' possible';
+      if(board[r][c])cell.textContent=PIECES[board[r][c]];
+      cell.onclick=()=>click(r,c);
+      row.appendChild(cell);
+    }
+    b.appendChild(row);
+  }
+  document.getElementById('turn').textContent='Navbat: '+(turn==='w'?'⬜ Oq':'⬛ Qora');
+}
+
+function getMoves(r,c){
+  const p=board[r][c];if(!p)return[];
+  const moves=[];const color=p[0];
+  const add=(nr,nc)=>{
+    if(nr<0||nr>7||nc<0||nc>7)return false;
+    if(board[nr][nc]&&board[nr][nc][0]===color)return false;
+    moves.push([nr,nc]);
+    return!board[nr][nc];
+  };
+  if(p[1]==='P'){
+    const dir=color==='w'?-1:1;
+    if(!board[r+dir]?.[c]){
+      moves.push([r+dir,c]);
+      if((color==='w'&&r===6)||(color==='b'&&r===1))if(!board[r+2*dir]?.[c])moves.push([r+2*dir,c]);
+    }
+    [-1,1].forEach(dc=>{if(board[r+dir]?.[c+dc]&&board[r+dir][c+dc][0]!==color)moves.push([r+dir,c+dc])});
+  }else if(p[1]==='N'){
+    [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
+  }else if(p[1]==='K'){
+    [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(([dr,dc])=>add(r+dr,c+dc));
+  }else{
+    if('QR'.includes(p[1])){[[0,1],[0,-1],[1,0],[-1,0]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}})}
+    if('QB'.includes(p[1])){[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(add(nr,nc)){nr+=dr;nc+=dc}})}
+  }
+  return moves;
+}
+
+function click(r,c){
+  if(selected){
+    const move=possible.find(p=>p[0]===r&&p[1]===c);
+    if(move){
+      board[r][c]=board[selected[0]][selected[1]];
+      board[selected[0]][selected[1]]=null;
+      if(board[r][c]==='wP'&&r===0)board[r][c]='wQ';
+      if(board[r][c]==='bP'&&r===7)board[r][c]='bQ';
+      turn=turn==='w'?'b':'w';
+      selected=null;possible=[];
+      document.getElementById('status').textContent='Yurish qilindi!';
+    }else if(board[r][c]&&board[r][c][0]===turn){
+      selected=[r,c];possible=getMoves(r,c);
+    }else{selected=null;possible=[];}
+  }else{
+    if(board[r][c]&&board[r][c][0]===turn){selected=[r,c];possible=getMoves(r,c);}
+  }
+  render();
+}
+
+function resetGame(){init();document.getElementById('status').textContent="O'yin boshlandi!";}
+init();
+</script>
+</body>
+</html>
